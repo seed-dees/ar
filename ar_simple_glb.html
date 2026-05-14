@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>AR Skulptur</title>
+    <script src="https://cdn.jsdelivr.net/npm/three@r128/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@r128/examples/js/loaders/GLTFLoader.js"></script>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: #000;
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        video {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            z-index: 1;
+        }
+
+        canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+        }
+
+        #info {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.9);
+            color: #0f0;
+            padding: 12px 15px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 12px;
+            z-index: 100;
+            border: 1px solid #0f0;
+            max-width: 300px;
+            line-height: 1.6;
+        }
+
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.9);
+            color: #0f0;
+            padding: 12px 15px;
+            border-radius: 8px;
+            font-size: 11px;
+            z-index: 100;
+            border: 1px solid #0f0;
+            max-width: 200px;
+        }
+
+        .control-item {
+            margin: 10px 0;
+        }
+
+        .control-label {
+            margin-bottom: 4px;
+            font-size: 10px;
+            color: #aaa;
+        }
+
+        input[type="color"] {
+            width: 100%;
+            height: 25px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+        }
+
+        button {
+            width: 100%;
+            padding: 8px;
+            margin-top: 10px;
+            background: #0f0;
+            color: #000;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 11px;
+        }
+
+        button:hover {
+            background: #0d0;
+        }
+
+        #distanceText {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: rgba(0, 255, 136, 0.5);
+            font-size: 14px;
+            font-family: monospace;
+            text-align: center;
+            z-index: 99;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+
+    <div id="distanceText">
+        <div id="modelDistance">Modell: 25m framåt</div>
+    </div>
+
+    <div id="info">
+        <div>🎨 AR SKULPTUR</div>
+        <div id="cameraStatus">📹 Kamera: Startar...</div>
+        <div id="modelStatus">🎨 Modell: Laddar...</div>
+        <div id="orientation">📐 Orientering: Läser...</div>
+    </div>
+
+    <div id="controls">
+        <div class="control-item">
+            <div class="control-label">FÄRG:</div>
+            <input type="color" id="colorPicker" value="#00ff88">
+        </div>
+
+        <div class="control-item">
+            <div class="control-label">SKALA:</div>
+            <input type="range" id="scalePicker" min="0.5" max="5" value="1" step="0.1">
+            <div style="color: #888; font-size: 9px; margin-top: 2px;">
+                <span id="scaleValue">1.0</span>x
+            </div>
+        </div>
+
+        <div class="control-item">
+            <div class="control-label">ROTATION:</div>
+            <input type="range" id="rotationPicker" min="0" max="360" value="0" step="5">
+            <div style="color: #888; font-size: 9px; margin-top: 2px;">
+                <span id="rotationValue">0</span>°
+            </div>
+        </div>
+
+        <button id="resetBtn">🔄 Återställ</button>
+    </div>
+
+    <script>
+        // ========== DOM ==========
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        // ========== THREE.JS ==========
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, canvas.width / canvas.height, 0.01, 1000);
+        const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+        renderer.setSize(canvas.width, canvas.height);
+        renderer.setClearColor(0x000000, 0);
+        renderer.setPixelRatio(window.devicePixelRatio);
+
+        // ========== VARIABLER ==========
+        let modelMesh = null;
+        let deviceAlpha = 0;
+        let deviceBeta = 0;
+        let deviceGamma = 0;
+
+        const settings = {
+            color: 0x00ff88,
+            scale: 1,
+            rotation: 0,
+            distance: 25
+        };
+
+        // ========== KAMERA ==========
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'environment',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    },
+                    audio: false
+                });
+
+                video.srcObject = stream;
+                updateStatus('cameraStatus', '✓ Kamera aktiv');
+                console.log('Kamera startat');
+            } catch (err) {
+                updateStatus('cameraStatus', '❌ Kamera: ' + err.message);
+                console.error(err);
+            }
+        }
+
+        // ========== LADDA GLB ==========
+        function loadGLBModel() {
+            const loader = new THREE.GLTFLoader();
+
+            loader.load('model.glb', gltf => {
+                console.log('GLB laddat');
+
+                modelMesh = gltf.scene;
+
+                // Skala och centrera
+                modelMesh.scale.set(0.01, 0.01, 0.01);
+
+                // Applicera färg på all geometri
+                modelMesh.traverse(child => {
+                    if (child.isMesh || child.isPoints) {
+                        if (child.material) {
+                            child.material.color.setHex(settings.color);
+                        }
+                    }
+                });
+
+                // Placera 25 meter framåt
+                modelMesh.position.z = -settings.distance;
+
+                scene.add(modelMesh);
+                updateStatus('modelStatus', '✓ GLB laddat');
+                console.log('Modell i scenen');
+            }, undefined, err => {
+                updateStatus('modelStatus', '❌ Error: ' + err.message);
+                console.error('GLB error:', err);
+            });
+        }
+
+        // ========== DEVICE ORIENTATION ==========
+        function startDeviceOrientation() {
+            if (typeof DeviceOrientationEvent === 'undefined') {
+                updateStatus('orientation', '❌ Orientering ej stödd');
+                return;
+            }
+
+            if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                // iOS 13+
+                DeviceOrientationEvent.requestPermission()
+                    .then(permission => {
+                        if (permission === 'granted') {
+                            window.addEventListener('deviceorientation', handleDeviceOrientation);
+                            updateStatus('orientation', '✓ Orientering aktiv');
+                        } else {
+                            updateStatus('orientation', '❌ Behörighet nekad');
+                        }
+                    })
+                    .catch(err => {
+                        updateStatus('orientation', '❌ Error: ' + err.message);
+                    });
+            } else {
+                // Android
+                window.addEventListener('deviceorientation', handleDeviceOrientation);
+                updateStatus('orientation', '✓ Orientering aktiv');
+            }
+        }
+
+        function handleDeviceOrientation(event) {
+            deviceAlpha = event.alpha || 0;
+            deviceBeta = event.beta || 0;
+            deviceGamma = event.gamma || 0;
+        }
+
+        // ========== RENDER LOOP ==========
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Rotera kameran baserat på enhetens orientering
+            if (deviceBeta !== null) {
+                camera.rotation.order = 'YXZ';
+                camera.rotation.y = -deviceGamma * Math.PI / 180;
+                camera.rotation.x = -deviceBeta * Math.PI / 180;
+            }
+
+            // Rotera modellen
+            if (modelMesh) {
+                modelMesh.rotation.y = (settings.rotation * Math.PI / 180);
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // ========== KONTROLLER ==========
+        document.getElementById('colorPicker').addEventListener('change', e => {
+            settings.color = parseInt(e.target.value.replace('#', '0x'));
+            if (modelMesh) {
+                modelMesh.material.color.setHex(settings.color);
+            }
+        });
+
+        document.getElementById('scalePicker').addEventListener('input', e => {
+            settings.scale = parseFloat(e.target.value);
+            document.getElementById('scaleValue').textContent = settings.scale.toFixed(1);
+            if (modelMesh) {
+                modelMesh.scale.set(settings.scale, settings.scale, settings.scale);
+            }
+        });
+
+        document.getElementById('rotationPicker').addEventListener('input', e => {
+            settings.rotation = parseFloat(e.target.value);
+            document.getElementById('rotationValue').textContent = settings.rotation;
+        });
+
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            document.getElementById('colorPicker').value = '#00ff88';
+            document.getElementById('scalePicker').value = '1';
+            document.getElementById('rotationPicker').value = '0';
+
+            settings.color = 0x00ff88;
+            settings.scale = 1;
+            settings.rotation = 0;
+            document.getElementById('scaleValue').textContent = '1.0';
+            document.getElementById('rotationValue').textContent = '0';
+
+            if (modelMesh) {
+                modelMesh.material.color.setHex(settings.color);
+                modelMesh.scale.set(1, 1, 1);
+                modelMesh.rotation.y = 0;
+            }
+        });
+
+        // ========== UTILITY ==========
+        function updateStatus(id, text) {
+            const el = document.getElementById(id);
+            if (el) el.textContent = text;
+        }
+
+        // ========== WINDOW RESIZE ==========
+        window.addEventListener('resize', () => {
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+            renderer.setSize(width, height);
+            canvas.width = width;
+            canvas.height = height;
+        });
+
+        // ========== INIT ==========
+        startCamera();
+        startDeviceOrientation();
+        loadGLBModel();
+        animate();
+    </script>
+</body>
+</html>
