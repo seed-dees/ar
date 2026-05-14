@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Geo Skulptur</title>
+    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+    <script src="https://raw.githack.com/AR-js-org/AR.js/master/three.js/build/ar-threex.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@r128/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@r128/examples/js/loaders/PLYLoader.js"></script>
+
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+        #info {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: #0f0;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 12px;
+            z-index: 100;
+            max-width: 300px;
+        }
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.8);
+            color: #0f0;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            z-index: 100;
+            max-width: 250px;
+            border: 1px solid #0f0;
+        }
+        .control-label {
+            margin: 8px 0;
+            color: #0f0;
+        }
+        input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+        }
+        input[type="color"] {
+            width: 100%;
+            height: 30px;
+            cursor: pointer;
+            border: none;
+            border-radius: 4px;
+        }
+        button {
+            width: 100%;
+            padding: 8px;
+            margin-top: 10px;
+            background: #0f0;
+            color: #000;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover {
+            background: #0d0;
+        }
+    </style>
+</head>
+<body>
+    <a-scene
+        vr-mode-ui="enabled: false"
+        arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: light; matrixCodeType: 3x3;">
+
+        <!-- Kamera -->
+        <a-camera gps-camera rotation-reader></a-camera>
+
+        <!-- 3D Modell -->
+        <a-entity id="model"
+                  gps-entity-place="latitude: 59.308028; longitude: 18.084972;"
+                  scale="5 5 5"
+                  rotation="0 0 0">
+            <!-- Placeholder - modellen laddar via JavaScript -->
+        </a-entity>
+    </a-scene>
+
+    <div id="info">
+        <div>📍 AR GEO SKULPTUR</div>
+        <div id="gpsStatus">GPS: Initialiserar...</div>
+        <div id="distance">Avstånd: -</div>
+        <div id="heading">Riktning: -</div>
+    </div>
+
+    <div id="controls">
+        <div class="control-label">STYLING</div>
+
+        <div class="control-label">Färg:</div>
+        <input type="color" id="colorPicker" value="#00ff88">
+
+        <div class="control-label">Skala:</div>
+        <input type="range" id="scalePicker" min="1" max="20" value="5" step="0.5">
+
+        <div class="control-label">Rotation Y:</div>
+        <input type="range" id="rotationY" min="0" max="360" value="0" step="5">
+
+        <button id="resetBtn">🔄 Återställ</button>
+    </div>
+
+    <script>
+        // ========== KONSTANTER ==========
+        const TARGET_LAT = 59.308028;
+        const TARGET_LON = 18.084972;
+
+        let modelEntity = document.getElementById('model');
+        let modelMesh = null;
+        let userLat = null;
+        let userLon = null;
+        let userHeading = 0;
+
+        const settings = {
+            color: 0x00ff88,
+            scale: 5,
+            rotationY: 0
+        };
+
+        // ========== LADDA PLY-MODELL ==========
+        function loadPLYModel() {
+            const plyLoader = new THREE.PLYLoader();
+
+            plyLoader.load('model.ply', function(geometry) {
+                console.log('PLY-modell laddat:', geometry);
+
+                // Centrera geometrin
+                geometry.center();
+                geometry.computeVertexNormals();
+
+                // Skapa material
+                const material = new THREE.PointsMaterial({
+                    color: settings.color,
+                    size: 0.02,
+                    sizeAttenuation: true
+                });
+
+                // Skapa mesh
+                modelMesh = new THREE.Points(geometry, material);
+
+                // Lägg till i scenen
+                const sceneEl = document.querySelector('a-scene');
+                const threeScene = sceneEl.object3D;
+
+                // Konvertera A-Frame entity till Three.js grupp
+                const modelElement = document.getElementById('model');
+                const group = new THREE.Group();
+                group.add(modelMesh);
+                modelElement.object3D.add(group);
+
+                console.log('Modell tillagd i scenen');
+                updateInfo('✓ Modell laddat');
+            });
+        }
+
+        // ========== GPS OCH AVSTÅND ==========
+        function updateGPSInfo() {
+            if (navigator.geolocation) {
+                navigator.geolocation.watchPosition(position => {
+                    userLat = position.coords.latitude;
+                    userLon = position.coords.longitude;
+                    userHeading = position.coords.heading || 0;
+
+                    // Beräkna avstånd
+                    const distance = calculateDistance(userLat, userLon, TARGET_LAT, TARGET_LON);
+                    const bearing = calculateBearing(userLat, userLon, TARGET_LAT, TARGET_LON);
+
+                    // Uppdatera info
+                    document.getElementById('gpsStatus').textContent =
+                        `GPS: ${userLat.toFixed(5)}, ${userLon.toFixed(5)}`;
+                    document.getElementById('distance').textContent =
+                        `Avstånd: ${Math.round(distance)}m`;
+                    document.getElementById('heading').textContent =
+                        `Riktning: ${Math.round(bearing)}°`;
+
+                    // Om vi är väldigt nära, visa modellen större
+                    if (distance < 50) {
+                        modelEntity.setAttribute('visible', 'true');
+                    } else {
+                        modelEntity.setAttribute('visible', 'false');
+                    }
+                });
+            }
+        }
+
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371000; // Jordradien i meter
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a =
+                Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
+        function calculateBearing(lat1, lon1, lat2, lon2) {
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const y = Math.sin(dLon) * Math.cos(lat2 * Math.PI / 180);
+            const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
+                      Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLon);
+            return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+        }
+
+        // ========== KONTROLLER ==========
+        document.getElementById('colorPicker').addEventListener('change', (e) => {
+            settings.color = parseInt(e.target.value.replace('#', '0x'));
+            if (modelMesh) {
+                modelMesh.material.color.setHex(settings.color);
+            }
+        });
+
+        document.getElementById('scalePicker').addEventListener('input', (e) => {
+            settings.scale = parseFloat(e.target.value);
+            modelEntity.setAttribute('scale', `${settings.scale} ${settings.scale} ${settings.scale}`);
+        });
+
+        document.getElementById('rotationY').addEventListener('input', (e) => {
+            settings.rotationY = parseFloat(e.target.value);
+            const rad = settings.rotationY * Math.PI / 180;
+            modelEntity.setAttribute('rotation', `0 ${settings.rotationY} 0`);
+        });
+
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            document.getElementById('colorPicker').value = '#00ff88';
+            document.getElementById('scalePicker').value = '5';
+            document.getElementById('rotationY').value = '0';
+
+            settings.color = 0x00ff88;
+            settings.scale = 5;
+            settings.rotationY = 0;
+
+            if (modelMesh) {
+                modelMesh.material.color.setHex(settings.color);
+            }
+            modelEntity.setAttribute('scale', '5 5 5');
+            modelEntity.setAttribute('rotation', '0 0 0');
+        });
+
+        function updateInfo(message) {
+            console.log(message);
+        }
+
+        // ========== INIT ==========
+        document.addEventListener('DOMContentLoaded', () => {
+            updateInfo('Initialiserar AR...');
+            loadPLYModel();
+            updateGPSInfo();
+        });
+    </script>
+</body>
+</html>
