@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Geo Skulptur</title>
+    <script src="https://cdn.jsdelivr.net/npm/three@r128/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@r128/examples/js/loaders/PLYLoader.js"></script>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: #000;
+            overflow: hidden;
+        }
+
+        #cameraView {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        #canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        #info {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.8);
+            color: #0f0;
+            padding: 12px 15px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 11px;
+            z-index: 100;
+            border: 1px solid #0f0;
+            max-width: 280px;
+        }
+
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.9);
+            color: #0f0;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 12px;
+            z-index: 100;
+            border: 1px solid #0f0;
+            max-width: 200px;
+        }
+
+        .control-group {
+            margin: 8px 0;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+        }
+
+        input[type="color"] {
+            width: 100%;
+            height: 25px;
+            cursor: pointer;
+            border: none;
+            border-radius: 4px;
+        }
+
+        button {
+            width: 100%;
+            padding: 6px;
+            margin-top: 8px;
+            background: #0f0;
+            color: #000;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 11px;
+        }
+    </style>
+</head>
+<body>
+    <video id="cameraView" autoplay playsinline></video>
+    <canvas id="canvas"></canvas>
+
+    <div id="info">
+        <div>📍 AR GEO SKULPTUR</div>
+        <div id="gpsStatus">GPS: -</div>
+        <div id="distance">Avstånd: -</div>
+        <div id="heading">Riktning: -</div>
+        <div id="modelStatus">Modell: Laddar...</div>
+    </div>
+
+    <div id="controls">
+        <div class="control-group">
+            <label>Färg:</label>
+            <input type="color" id="colorPicker" value="#00ff88">
+        </div>
+        <div class="control-group">
+            <label>Skala:</label>
+            <input type="range" id="scalePicker" min="1" max="20" value="5" step="0.5">
+        </div>
+        <div class="control-group">
+            <label>Rotation:</label>
+            <input type="range" id="rotationPicker" min="0" max="360" value="0" step="5">
+        </div>
+        <button id="resetBtn">Återställ</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const video = document.getElementById('cameraView');
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const TARGET_LAT = 59.308028;
+        const TARGET_LON = 18.084972;
+
+        let userLat = null;
+        let userLon = null;
+        let userHeading = 0;
+        let modelMesh = null;
+        let scene = new THREE.Scene();
+        let camera = new THREE.PerspectiveCamera(75, canvas.width / canvas.height, 0.1, 1000);
+        let renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+        renderer.setSize(canvas.width, canvas.height);
+        renderer.setClearColor(0x000000, 0);
+
+        const settings = {
+            color: 0x00ff88,
+            scale: 5,
+            rotation: 0
+        };
+
+        // ========== KAMERA ==========
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'environment' },
+                    audio: false
+                });
+                video.srcObject = stream;
+                updateInfo('✓ Kamera aktiverad');
+            } catch (err) {
+                updateInfo('❌ Kamera error: ' + err.message);
+                console.error(err);
+            }
+        }
+
+        // ========== LADDA PLY ==========
+        function loadPLYModel() {
+            const loader = new THREE.PLYLoader();
+            loader.load('model.ply', geometry => {
+                geometry.center();
+                geometry.computeVertexNormals();
+
+                const material = new THREE.PointsMaterial({
+                    color: settings.color,
+                    size: 0.02,
+                    sizeAttenuation: true
+                });
+
+                modelMesh = new THREE.Points(geometry, material);
+                scene.add(modelMesh);
+                updateInfo('✓ Modell laddat');
+            });
+        }
+
+        // ========== GPS ==========
+        function startGPS() {
+            if (navigator.geolocation) {
+                navigator.geolocation.watchPosition(position => {
+                    userLat = position.coords.latitude;
+                    userLon = position.coords.longitude;
+                    userHeading = position.coords.heading || 0;
+
+                    const distance = calculateDistance(userLat, userLon, TARGET_LAT, TARGET_LON);
+                    const bearing = calculateBearing(userLat, userLon, TARGET_LAT, TARGET_LON);
+
+                    document.getElementById('gpsStatus').textContent =
+                        `GPS: ${userLat.toFixed(4)}, ${userLon.toFixed(4)}`;
+                    document.getElementById('distance').textContent =
+                        `Avstånd: ${Math.round(distance)}m`;
+                    document.getElementById('heading').textContent =
+                        `Riktning: ${Math.round(bearing)}°`;
+                });
+            }
+        }
+
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371000;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
+        function calculateBearing(lat1, lon1, lat2, lon2) {
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const y = Math.sin(dLon) * Math.cos(lat2 * Math.PI / 180);
+            const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
+                      Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLon);
+            return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+        }
+
+        // ========== KONTROLLER ==========
+        document.getElementById('colorPicker').addEventListener('change', e => {
+            settings.color = parseInt(e.target.value.replace('#', '0x'));
+            if (modelMesh) modelMesh.material.color.setHex(settings.color);
+        });
+
+        document.getElementById('scalePicker').addEventListener('input', e => {
+            settings.scale = parseFloat(e.target.value);
+            if (modelMesh) modelMesh.scale.set(settings.scale, settings.scale, settings.scale);
+        });
+
+        document.getElementById('rotationPicker').addEventListener('input', e => {
+            settings.rotation = parseFloat(e.target.value) * Math.PI / 180;
+            if (modelMesh) modelMesh.rotation.z = settings.rotation;
+        });
+
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            document.getElementById('colorPicker').value = '#00ff88';
+            document.getElementById('scalePicker').value = '5';
+            document.getElementById('rotationPicker').value = '0';
+            settings.color = 0x00ff88;
+            settings.scale = 5;
+            settings.rotation = 0;
+            if (modelMesh) {
+                modelMesh.material.color.setHex(settings.color);
+                modelMesh.scale.set(5, 5, 5);
+                modelMesh.rotation.z = 0;
+            }
+        });
+
+        function updateInfo(msg) {
+            document.getElementById('modelStatus').textContent = msg;
+        }
+
+        // ========== RENDER LOOP ==========
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Rotera modellen baserat på användarens heading
+            if (modelMesh && userHeading !== null) {
+                modelMesh.rotation.y = userHeading * Math.PI / 180;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // ========== INIT ==========
+        startCamera();
+        startGPS();
+        loadPLYModel();
+        animate();
+
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            renderer.setSize(canvas.width, canvas.height);
+            camera.aspect = canvas.width / canvas.height;
+            camera.updateProjectionMatrix();
+        });
+    </script>
+</body>
+</html>
