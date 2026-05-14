@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Punktmoln Visare - Test 2</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #000;
+            overflow: hidden;
+            color: #fff;
+        }
+
+        #canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        #controls {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 15px;
+            border-radius: 10px;
+            max-width: 280px;
+            max-height: 90vh;
+            overflow-y: auto;
+            z-index: 100;
+            border: 2px solid #00ffff;
+        }
+
+        #controls h3 {
+            color: #00ffff;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        .control-group {
+            margin-bottom: 12px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #333;
+        }
+
+        .control-group:last-child {
+            border-bottom: none;
+        }
+
+        .preset-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 5px;
+            margin-bottom: 10px;
+        }
+
+        .preset-btn {
+            padding: 6px 8px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: bold;
+            transition: all 0.2s;
+            color: #000;
+        }
+
+        .preset-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+        }
+
+        .preset-cyan { background: #00ffff; }
+        .preset-magenta { background: #ff00ff; }
+        .preset-lime { background: #00ff00; }
+        .preset-yellow { background: #ffff00; }
+        .preset-orange { background: #ff7700; }
+        .preset-red { background: #ff0055; }
+        .preset-blue { background: #0088ff; }
+        .preset-white { background: #ffffff; }
+
+        label {
+            display: block;
+            font-size: 12px;
+            margin-bottom: 5px;
+            color: #aaa;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+        }
+
+        input[type="color"] {
+            width: 100%;
+            height: 35px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        input[type="number"] {
+            width: 60px;
+            padding: 5px;
+            border: 1px solid #444;
+            border-radius: 3px;
+            background: #222;
+            color: #fff;
+        }
+
+        .value-display {
+            display: inline-block;
+            margin-left: 10px;
+            color: #00ffff;
+            font-weight: bold;
+            font-size: 12px;
+        }
+
+        #status {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 12px;
+            border: 1px solid #00ffff;
+            max-width: 300px;
+        }
+
+        #gpsInfo {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 11px;
+            border: 1px solid #00ffff;
+            max-width: 280px;
+        }
+
+        .gps-status {
+            color: #ff6b6b;
+        }
+
+        .gps-status.active {
+            color: #00ffff;
+        }
+
+        button {
+            background: #00ffff;
+            color: #000;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 12px;
+            width: 100%;
+            margin-top: 5px;
+        }
+
+        button:hover {
+            background: #00dddd;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .test-badge {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: #00ffff;
+            color: #000;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-weight: bold;
+            font-size: 11px;
+            z-index: 1000;
+            margin-top: 55px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+
+    <div class="test-badge">TEST-2: 2x Större</div>
+
+    <div id="gpsInfo">
+        <div>📍 <strong>GPS & ORIENTERING</strong></div>
+        <div class="gps-status" id="gpsStatus">Initialiserar...</div>
+        <div style="margin-top: 5px; color: #aaa;">
+            <div id="gpsCoords">-</div>
+            <div id="gpsDistance" style="margin-top: 3px;">-</div>
+            <div id="deviceHeading" style="margin-top: 3px;">-</div>
+        </div>
+    </div>
+
+    <div id="controls">
+        <h3>⚙️ PUNKTMOLN STYLING</h3>
+
+        <div class="control-group">
+            <label>🎨 FÄRG-PRESETS:</label>
+            <div class="preset-buttons">
+                <button class="preset-btn preset-cyan" data-color="#00ffff">Cyan</button>
+                <button class="preset-btn preset-magenta" data-color="#ff00ff">Magenta</button>
+                <button class="preset-btn preset-lime" data-color="#00ff00">Lime</button>
+                <button class="preset-btn preset-yellow" data-color="#ffff00">Gul</button>
+                <button class="preset-btn preset-orange" data-color="#ff7700">Orange</button>
+                <button class="preset-btn preset-red" data-color="#ff0055">Röd</button>
+                <button class="preset-btn preset-blue" data-color="#0088ff">Blå</button>
+                <button class="preset-btn preset-white" data-color="#ffffff">Vit</button>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label for="colorPicker">Custom Färg:</label>
+            <input type="color" id="colorPicker" value="#00ffff">
+        </div>
+
+        <div class="control-group">
+            <label for="opacitySlider">Opacitet: <span class="value-display" id="opacityValue">0.9</span></label>
+            <input type="range" id="opacitySlider" min="0" max="1" step="0.1" value="0.9">
+        </div>
+
+        <div class="control-group">
+            <label for="sizeSlider">Punktstorlek: <span class="value-display" id="sizeValue">4</span></label>
+            <input type="range" id="sizeSlider" min="0.5" max="10" step="0.5" value="4">
+        </div>
+
+        <div class="control-group">
+            <label for="emissionSlider">Emission: <span class="value-display" id="emissionValue">1.2</span></label>
+            <input type="range" id="emissionSlider" min="0" max="2" step="0.1" value="1.2">
+        </div>
+
+        <div class="control-group">
+            <label for="rotationX">Rotation X: <span class="value-display" id="rotationXValue">0°</span></label>
+            <input type="range" id="rotationX" min="-180" max="180" step="5" value="0">
+        </div>
+
+        <div class="control-group">
+            <label for="rotationY">Rotation Y: <span class="value-display" id="rotationYValue">0°</span></label>
+            <input type="range" id="rotationY" min="-180" max="180" step="5" value="0">
+        </div>
+
+        <div class="control-group">
+            <label for="rotationZ">Rotation Z: <span class="value-display" id="rotationZValue">0°</span></label>
+            <input type="range" id="rotationZ" min="-180" max="180" step="5" value="0">
+        </div>
+
+        <div class="control-group">
+            <button id="loadFileBtn">📁 Ladda PLY-fil</button>
+            <input type="file" id="fileInput" accept=".ply,.json">
+        </div>
+
+        <div class="control-group">
+            <button id="resetBtn">🔄 Återställ</button>
+        </div>
+    </div>
+
+    <div id="status">
+        <div>⏳ Laddar...</div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script>
+        // ========== SCENE SETUP ==========
+        const canvas = document.getElementById('canvas');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x000000);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
+        camera.position.set(0, 1.6, 0);
+
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+
+        // ========== VARIABLES ==========
+        let pointCloud = null;
+        let userLat = null, userLon = null;
+        let userHeading = 0;
+        const modelDistance = 10; // 10 meter
+        const modelHeight = 20; // 2x större: 20 meter (var: 10)
+        const modelWidth = 20;   // 2x större: 20 meter (var: 10)
+
+        const settings = {
+            color: new THREE.Color(0x00ffff), // Cyan som standard
+            opacity: 0.9,
+            size: 4, // 2x större: 4 (var: 2)
+            emission: 1.2, // Högre som standard
+            rotX: 0,
+            rotY: 0,
+            rotZ: 0
+        };
+
+        // ========== UTILITIES ==========
+        function degreesToRadians(degrees) {
+            return degrees * (Math.PI / 180);
+        }
+
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371;
+            const dLat = degreesToRadians(lat2 - lat1);
+            const dLon = degreesToRadians(lon2 - lon1);
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(degreesToRadians(lat1)) * Math.cos(degreesToRadians(lat2)) *
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c * 1000;
+        }
+
+        function createPointCloud(vertices) {
+            if (pointCloud) scene.remove(pointCloud);
+
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(vertices.flat());
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+            const material = new THREE.PointsMaterial({
+                color: settings.color,
+                size: settings.size,
+                transparent: true,
+                opacity: settings.opacity,
+                emissive: settings.color,
+                emissiveIntensity: settings.emission,
+                sizeAttenuation: true
+            });
+
+            pointCloud = new THREE.Points(geometry, material);
+
+            const bbox = new THREE.Box3().setFromBufferAttribute(geometry.getAttribute('position'));
+            const size = bbox.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const scale = modelWidth / maxDim;
+
+            pointCloud.scale.multiplyScalar(scale);
+
+            const center = bbox.getCenter(new THREE.Vector3());
+            center.multiplyScalar(scale);
+            pointCloud.position.sub(center);
+
+            pointCloud.position.z = -modelDistance;
+            pointCloud.position.y = modelHeight / 2;
+
+            scene.add(pointCloud);
+            updateStatus('✓ Punktmoln laddat: ' + vertices.length + ' punkter (2x större)');
+        }
+
+        // ========== PLY PARSER ==========
+        function parsePLY(data) {
+            const lines = data.split('\n');
+            let vertexCount = 0;
+            let headerEnd = 0;
+
+            for (let i = 0; i < lines.length; i++) {
+                if (lines[i].startsWith('element vertex')) {
+                    vertexCount = parseInt(lines[i].split(' ')[2]);
+                }
+                if (lines[i] === 'end_header') {
+                    headerEnd = i + 1;
+                    break;
+                }
+            }
+
+            const vertices = [];
+            for (let i = headerEnd; i < headerEnd + vertexCount; i++) {
+                const parts = lines[i].trim().split(/\s+/);
+                if (parts.length >= 3) {
+                    vertices.push([
+                        parseFloat(parts[0]),
+                        parseFloat(parts[1]),
+                        parseFloat(parts[2])
+                    ]);
+                }
+            }
+
+            return vertices;
+        }
+
+        // ========== FILE LOADING ==========
+        document.getElementById('loadFileBtn').addEventListener('click', () => {
+            document.getElementById('fileInput').click();
+        });
+
+        document.getElementById('fileInput').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const data = event.target.result;
+                    let vertices;
+
+                    if (file.name.endsWith('.ply')) {
+                        vertices = parsePLY(data);
+                    } else if (file.name.endsWith('.json')) {
+                        const json = JSON.parse(data);
+                        vertices = json.vertices || json;
+                    } else {
+                        throw new Error('Filformat stöds inte');
+                    }
+
+                    createPointCloud(vertices);
+                } catch (err) {
+                    updateStatus('❌ Fel vid filläsning: ' + err.message);
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        // ========== PRESET COLORS ==========
+        document.querySelectorAll('.preset-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const color = e.target.getAttribute('data-color');
+                document.getElementById('colorPicker').value = color;
+                settings.color = new THREE.Color(color);
+                if (pointCloud) {
+                    pointCloud.material.color.copy(settings.color);
+                    pointCloud.material.emissive.copy(settings.color);
+                }
+            });
+        });
+
+        // ========== GPS & ORIENTATION ==========
+        function initGPS() {
+            if (!navigator.geolocation) {
+                updateStatus('❌ Geolocation stöds inte');
+                return;
+            }
+
+            navigator.geolocation.watchPosition(
+                (position) => {
+                    userLat = position.coords.latitude;
+                    userLon = position.coords.longitude;
+                    updateGPSInfo();
+                },
+                (error) => {
+                    updateStatus('⚠️ GPS error: ' + error.message);
+                }
+            );
+        }
+
+        function initOrientation() {
+            if (typeof DeviceOrientationEvent === 'undefined') {
+                updateStatus('⚠️ Device orientation stöds inte');
+                return;
+            }
+
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission()
+                    .then(permissionState => {
+                        if (permissionState === 'granted') {
+                            window.addEventListener('deviceorientation', handleOrientation);
+                        }
+                    })
+                    .catch(console.error);
+            } else {
+                window.addEventListener('deviceorientation', handleOrientation);
+            }
+        }
+
+        function handleOrientation(event) {
+            userHeading = event.alpha;
+            updateGPSInfo();
+        }
+
+        function updateGPSInfo() {
+            const gpsStatus = document.getElementById('gpsStatus');
+            const gpsCoords = document.getElementById('gpsCoords');
+            const gpsDistance = document.getElementById('gpsDistance');
+            const deviceHeading = document.getElementById('deviceHeading');
+
+            if (userLat && userLon) {
+                gpsStatus.textContent = '✓ GPS aktiv';
+                gpsStatus.className = 'gps-status active';
+                gpsCoords.textContent = `${userLat.toFixed(5)}, ${userLon.toFixed(5)}`;
+                gpsDistance.textContent = `Modell: ${modelDistance}m framåt`;
+                deviceHeading.textContent = `Riktning: ${Math.round(userHeading)}°`;
+            } else {
+                gpsStatus.textContent = '⏳ Hämtar GPS...';
+                gpsStatus.className = 'gps-status';
+            }
+        }
+
+        // ========== CONTROLS ==========
+        document.getElementById('colorPicker').addEventListener('change', (e) => {
+            settings.color = new THREE.Color(e.target.value);
+            if (pointCloud) {
+                pointCloud.material.color.copy(settings.color);
+                pointCloud.material.emissive.copy(settings.color);
+            }
+        });
+
+        document.getElementById('opacitySlider').addEventListener('input', (e) => {
+            settings.opacity = parseFloat(e.target.value);
+            document.getElementById('opacityValue').textContent = settings.opacity.toFixed(1);
+            if (pointCloud) pointCloud.material.opacity = settings.opacity;
+        });
+
+        document.getElementById('sizeSlider').addEventListener('input', (e) => {
+            settings.size = parseFloat(e.target.value);
+            document.getElementById('sizeValue').textContent = settings.size.toFixed(1);
+            if (pointCloud) pointCloud.material.size = settings.size;
+        });
+
+        document.getElementById('emissionSlider').addEventListener('input', (e) => {
+            settings.emission = parseFloat(e.target.value);
+            document.getElementById('emissionValue').textContent = settings.emission.toFixed(1);
+            if (pointCloud) pointCloud.material.emissiveIntensity = settings.emission;
+        });
+
+        document.getElementById('rotationX').addEventListener('input', (e) => {
+            settings.rotX = parseFloat(e.target.value);
+            document.getElementById('rotationXValue').textContent = settings.rotX + '°';
+            updatePointCloudRotation();
+        });
+
+        document.getElementById('rotationY').addEventListener('input', (e) => {
+            settings.rotY = parseFloat(e.target.value);
+            document.getElementById('rotationYValue').textContent = settings.rotY + '°';
+            updatePointCloudRotation();
+        });
+
+        document.getElementById('rotationZ').addEventListener('input', (e) => {
+            settings.rotZ = parseFloat(e.target.value);
+            document.getElementById('rotationZValue').textContent = settings.rotZ + '°';
+            updatePointCloudRotation();
+        });
+
+        function updatePointCloudRotation() {
+            if (pointCloud) {
+                pointCloud.rotation.x = degreesToRadians(settings.rotX);
+                pointCloud.rotation.y = degreesToRadians(settings.rotY);
+                pointCloud.rotation.z = degreesToRadians(settings.rotZ);
+            }
+        }
+
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            document.getElementById('colorPicker').value = '#00ffff';
+            document.getElementById('opacitySlider').value = 0.9;
+            document.getElementById('sizeSlider').value = 4;
+            document.getElementById('emissionSlider').value = 1.2;
+            document.getElementById('rotationX').value = 0;
+            document.getElementById('rotationY').value = 0;
+            document.getElementById('rotationZ').value = 0;
+
+            settings.color = new THREE.Color(0x00ffff);
+            settings.opacity = 0.9;
+            settings.size = 4;
+            settings.emission = 1.2;
+            settings.rotX = 0;
+            settings.rotY = 0;
+            settings.rotZ = 0;
+
+            updateGPSInfo();
+            document.getElementById('opacityValue').textContent = '0.9';
+            document.getElementById('sizeValue').textContent = '4';
+            document.getElementById('emissionValue').textContent = '1.2';
+            document.getElementById('rotationXValue').textContent = '0°';
+            document.getElementById('rotationYValue').textContent = '0°';
+            document.getElementById('rotationZValue').textContent = '0°';
+        });
+
+        // ========== STATUS ==========
+        function updateStatus(message) {
+            document.getElementById('status').innerHTML = '<div>' + message + '</div>';
+        }
+
+        // ========== WINDOW RESIZE ==========
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // ========== ANIMATION LOOP ==========
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (pointCloud && userHeading !== null) {
+                scene.rotation.z = degreesToRadians(-userHeading);
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // ========== INIT ==========
+        function init() {
+            updateStatus('📱 Initialiserar AR (Test-2: 2x större)...');
+            initGPS();
+            initOrientation();
+            animate();
+            updateStatus('📂 Klicka på "Ladda PLY-fil" för att ladda din modell');
+        }
+
+        init();
+    </script>
+</body>
+</html>
